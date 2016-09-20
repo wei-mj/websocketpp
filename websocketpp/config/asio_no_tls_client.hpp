@@ -61,6 +61,8 @@ struct asio_client : public core_client {
         typedef type::response_type response_type;
         typedef websocketpp::transport::asio::basic_socket::endpoint
             socket_type;
+        typedef lib::asio::const_buffer buffer;
+        static buffer make_buffer(const char* buf, size_t len) {return lib::asio::buffer(buf,len);}
     };
 
     typedef websocketpp::transport::asio::endpoint<transport_config>

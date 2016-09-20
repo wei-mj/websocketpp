@@ -55,6 +55,18 @@ namespace websocketpp {
 namespace transport {
 namespace asio {
 
+template<typename T>
+class container_const_reference
+{
+public:
+    explicit container_const_reference(T& obj) : m_obj(obj) {}
+    typedef typename T::const_iterator const_iterator;
+    const_iterator begin() const { return m_obj.begin(); }
+    const_iterator end() const { return m_obj.end(); }
+private:
+    T& m_obj;
+};
+
 typedef lib::function<void(connection_hdl)> tcp_init_handler;
 
 /// Asio based connection transport component
@@ -608,8 +620,10 @@ protected:
 
         m_proxy_data->write_buf = m_proxy_data->req.raw();
 
+#ifndef _WEBSOCKETPP_TRANSPORT_ASIO_OPTIMIZED_
         m_bufs.push_back(lib::asio::buffer(m_proxy_data->write_buf.data(),
                                            m_proxy_data->write_buf.size()));
+#endif
 
         m_alog.write(log::alevel::devel,m_proxy_data->write_buf);
 
@@ -628,7 +642,12 @@ protected:
         if (config::enable_multithreading) {
             lib::asio::async_write(
                 socket_con_type::get_next_layer(),
-                m_bufs,
+#ifdef _WEBSOCKETPP_TRANSPORT_ASIO_OPTIMIZED_
+                lib::asio::buffer(m_proxy_data->write_buf.data(),
+                                           m_proxy_data->write_buf.size()),
+#else
+                container_const_reference<std::vector<lib::asio::const_buffer> const>(m_bufs),
+#endif
                 m_strand->wrap(lib::bind(
                     &type::handle_proxy_write, get_shared(),
                     callback,
@@ -638,7 +657,12 @@ protected:
         } else {
             lib::asio::async_write(
                 socket_con_type::get_next_layer(),
-                m_bufs,
+#ifdef _WEBSOCKETPP_TRANSPORT_ASIO_OPTIMIZED_
+                lib::asio::buffer(m_proxy_data->write_buf.data(),
+                                           m_proxy_data->write_buf.size()),
+#else
+                container_const_reference<std::vector<lib::asio::const_buffer> const>(m_bufs),
+#endif
                 lib::bind(
                     &type::handle_proxy_write, get_shared(),
                     callback,
@@ -673,7 +697,9 @@ protected:
                 "asio connection handle_proxy_write");
         }
 
+#ifndef _WEBSOCKETPP_TRANSPORT_ASIO_OPTIMIZED_
         m_bufs.clear();
+#endif
 
         // Timer expired or the operation was aborted for some reason.
         // Whatever aborted it will be issuing the callback so we are safe to
@@ -904,12 +930,18 @@ protected:
 
     /// Initiate a potentially asyncronous write of the given buffer
     void async_write(const char* buf, size_t len, write_handler handler) {
+#ifndef _WEBSOCKETPP_TRANSPORT_ASIO_OPTIMIZED_
         m_bufs.push_back(lib::asio::buffer(buf,len));
+#endif
 
         if (config::enable_multithreading) {
             lib::asio::async_write(
                 socket_con_type::get_socket(),
-                m_bufs,
+#ifdef _WEBSOCKETPP_TRANSPORT_ASIO_OPTIMIZED_
+                lib::asio::buffer(buf,len),
+#else
+                container_const_reference<std::vector<lib::asio::const_buffer> const>(m_bufs),
+#endif
                 m_strand->wrap(make_custom_alloc_handler(
                     m_write_handler_allocator,
                     lib::bind(
@@ -922,7 +954,11 @@ protected:
         } else {
             lib::asio::async_write(
                 socket_con_type::get_socket(),
-                m_bufs,
+#ifdef _WEBSOCKETPP_TRANSPORT_ASIO_OPTIMIZED_
+                lib::asio::buffer(buf,len),
+#else
+                container_const_reference<std::vector<lib::asio::const_buffer> const>(m_bufs),
+#endif
                 make_custom_alloc_handler(
                     m_write_handler_allocator,
                     lib::bind(
@@ -936,17 +972,13 @@ protected:
     }
 
     /// Initiate a potentially asyncronous write of the given buffers
-    void async_write(std::vector<buffer> const & bufs, write_handler handler) {
-        std::vector<buffer>::const_iterator it;
-
-        for (it = bufs.begin(); it != bufs.end(); ++it) {
-            m_bufs.push_back(lib::asio::buffer((*it).buf,(*it).len));
-        }
-
+#ifdef _WEBSOCKETPP_TRANSPORT_ASIO_OPTIMIZED_
+    template<typename ConstBufSeq>
+    void async_write(ConstBufSeq const & bufs, write_handler handler) {
         if (config::enable_multithreading) {
             lib::asio::async_write(
                 socket_con_type::get_socket(),
-                m_bufs,
+                container_const_reference<std::vector<lib::asio::const_buffer> const>(bufs),
                 m_strand->wrap(make_custom_alloc_handler(
                     m_write_handler_allocator,
                     lib::bind(
@@ -959,7 +991,7 @@ protected:
         } else {
             lib::asio::async_write(
                 socket_con_type::get_socket(),
-                m_bufs,
+                container_const_reference<std::vector<lib::asio::const_buffer> const>(bufs),
                 make_custom_alloc_handler(
                     m_write_handler_allocator,
                     lib::bind(
@@ -971,6 +1003,43 @@ protected:
             );
         }
     }
+#else
+    void async_write(std::vector<buffer> const & bufs, write_handler handler) {
+        std::vector<buffer>::const_iterator it;
+
+        for (it = bufs.begin(); it != bufs.end(); ++it) {
+            m_bufs.push_back(lib::asio::buffer((*it).buf,(*it).len));
+        }
+
+        if (config::enable_multithreading) {
+            lib::asio::async_write(
+                socket_con_type::get_socket(),
+                container_const_reference<std::vector<lib::asio::const_buffer> const>(m_bufs),
+                m_strand->wrap(make_custom_alloc_handler(
+                    m_write_handler_allocator,
+                    lib::bind(
+                        &type::handle_async_write, get_shared(),
+                        handler,
+                        lib::placeholders::_1, lib::placeholders::_2
+                    )
+                ))
+            );
+        } else {
+            lib::asio::async_write(
+                socket_con_type::get_socket(),
+                container_const_reference<std::vector<lib::asio::const_buffer> const>(m_bufs),
+                make_custom_alloc_handler(
+                    m_write_handler_allocator,
+                    lib::bind(
+                        &type::handle_async_write, get_shared(),
+                        handler,
+                        lib::placeholders::_1, lib::placeholders::_2
+                    )
+                )
+            );
+        }
+    }
+#endif
 
     /// Async write callback
     /**
@@ -978,7 +1047,9 @@ protected:
      * @param bytes_transferred The number of bytes read
      */
     void handle_async_write(write_handler handler, lib::asio::error_code const & ec, size_t) {
+#ifndef _WEBSOCKETPP_TRANSPORT_ASIO_OPTIMIZED_
         m_bufs.clear();
+#endif
         lib::error_code tec;
         if (ec) {
             log_err(log::elevel::info,"asio async_write",ec);
@@ -1183,7 +1254,9 @@ private:
     strand_ptr      m_strand;
     connection_hdl  m_connection_hdl;
 
+#ifndef _WEBSOCKETPP_TRANSPORT_ASIO_OPTIMIZED_
     std::vector<lib::asio::const_buffer> m_bufs;
+#endif
 
     /// Detailed internal error code
     lib::asio::error_code m_tec;

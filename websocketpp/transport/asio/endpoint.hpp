@@ -87,6 +87,9 @@ public:
     /// Type of a shared pointer to an io_service work object
     typedef lib::shared_ptr<lib::asio::io_service::work> work_ptr;
 
+    // wmj: get_io_service_handler
+    typedef lib::function<io_service_ptr()> get_io_service_handler;
+
     // generate and manage our own io_service
     explicit endpoint()
       : m_io_service(NULL)
@@ -128,6 +131,7 @@ public:
       : config::socket_type(std::move(src))
       , m_tcp_pre_init_handler(src.m_tcp_pre_init_handler)
       , m_tcp_post_init_handler(src.m_tcp_post_init_handler)
+      , m_get_io_service_handler(src.m_get_io_service_handler)
       , m_io_service(src.m_io_service)
       , m_external_io_service(src.m_external_io_service)
       , m_acceptor(src.m_acceptor)
@@ -300,6 +304,23 @@ public:
      */
     void set_tcp_post_init_handler(tcp_init_handler h) {
         m_tcp_post_init_handler = h;
+    }
+
+    /// Sets the get_io_service_handler
+    /**
+     * The get_io_service_handler is called when the endpoint is about to
+     * initialize a new connection object, it returns an io_service for the
+     * endpoint to use to initialize the new connection. This is designed for
+     * an architecture which is using something like io_service_pool.
+     *
+     * In case of using a single io_service just leave this handler blank.
+     *
+     * @since 0.7.0-enhanced
+     *
+     * @param h The handler to call for getting an io_service.
+     */
+    void set_get_io_service_handler(get_io_service_handler h) {
+        m_get_io_service_handler = h;
     }
 
     /// Sets the maximum length of the queue of pending connections.
@@ -1095,7 +1116,7 @@ protected:
 
         lib::error_code ec;
 
-        ec = tcon->init_asio(m_io_service);
+        ec = tcon->init_asio(m_get_io_service_handler ? m_get_io_service_handler() : m_io_service);
         if (ec) {return ec;}
 
         tcon->set_tcp_pre_init_handler(m_tcp_pre_init_handler);
@@ -1121,6 +1142,7 @@ private:
     // Handlers
     tcp_init_handler    m_tcp_pre_init_handler;
     tcp_init_handler    m_tcp_post_init_handler;
+    get_io_service_handler m_get_io_service_handler; //wmj
 
     // Network Resources
     io_service_ptr      m_io_service;

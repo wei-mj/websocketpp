@@ -1593,7 +1593,11 @@ private:
     /**
      * Lock m_write_lock
      */
+#ifdef _WEBSOCKETPP_TRANSPORT_ASIO_OPTIMIZED_
+    std::vector<typename config::transport_config::buffer> m_send_buffer;
+#else
     std::vector<transport::buffer> m_send_buffer;
+#endif
 
     /// a list of pointers to hold on to the messages being written to keep them
     /// from going out of scope before the write is complete.

@@ -1854,8 +1854,13 @@ void connection<config>::write_frame() {
         std::string const & header = (*it)->get_header();
         std::string const & payload = (*it)->get_payload();
 
+#ifdef _WEBSOCKETPP_TRANSPORT_ASIO_OPTIMIZED_
+        m_send_buffer.push_back(config::transport_config::make_buffer(header.c_str(),header.size()));
+        m_send_buffer.push_back(config::transport_config::make_buffer(payload.c_str(),payload.size()));
+#else
         m_send_buffer.push_back(transport::buffer(header.c_str(),header.size()));
         m_send_buffer.push_back(transport::buffer(payload.c_str(),payload.size()));   
+#endif
     }
 
     // Print detailed send stats if those log levels are enabled
